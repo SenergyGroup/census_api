@@ -1,0 +1,168 @@
+---
+title: "Census API"
+format: html
+editor: visual
+---
+
+The four packages we need are *tidycensus*, *tigris*, *tmap*,and *tidyverse*. *Tidycensus* is the package we will use to access the US Census and gather data, and *tidyverse* is the package we will use to merge and tidy the data.
+
+```{r}
+#| echo: false
+#| message: false
+library(tidycensus)
+library(tigris)
+library(tmap)
+library(leaflet)
+library(tidyverse)
+```
+
+First, we want input our Census API key. You can obtain one through the Census website located here: https://api.census.gov/data/key_signup.html.
+
+```{r}
+
+key <- rstudioapi::askForPassword(prompt = "Please Enter Your API Key")
+
+tidycensus::census_api_key(key = key)
+```
+
+Downloading shape files is time consuming, so instead of downloading them each time the script is run, you can use the argument *tigris_use_cache = TRUE* to save the files locally.
+
+```{r}
+
+options(tigris_use_cache = TRUE)
+```
+
+I am going to call the API to fetch the Polk County, Iowa data by Census tract. The variables I am calling are the population counts for Hispanic and non-Hispanic by race. The *summary_var* argument is the total population which we will use to create proportions. The year argument is the *year* of the decennial data I want to pull. Finally, *geometry* is to include the shape files with the API pull.
+
+```{r}
+blackhawk_race <- get_decennial(
+  geography = "tract",
+  state = "IA",
+  county = "Polk",
+  variables = c(
+    Hispanic = "P2_002N",
+    White = "P2_005N",
+    Black = "P2_006N",
+    Native = "P2_007N",
+    Asian = "P2_008N",
+    Two =  "P2_011N"
+  ),
+  summary_var = "P2_001N",
+  year = 2020,
+  geometry = TRUE
+) %>%
+  mutate(percent = round(100 * (value / summary_value), digits = 1))
+
+```
+
+The following code filters the dataset by each race and ethnicity so we can create separate shape files for analysis.
+
+```{r}
+
+Polk.Black.or.African.American <- filter(blackhawk_race, 
+                         variable == "Black")
+Polk.Hispanic.or.Latino <- filter(blackhawk_race, 
+                         variable == "Hispanic")
+Polk.White <- filter(blackhawk_race, 
+                         variable == "White")
+Polk.Native.American.or.Alaska.Native <- filter(blackhawk_race, 
+                         variable == "Native")
+Polk.Asian <- filter(blackhawk_race, 
+                         variable == "Asian")
+Polk.Two.or.More.Races <- filter(blackhawk_race, 
+                         variable == "Two")
+```
+
+To create a map, we will use the package tmap. The tmap_options() function lets us choose which base map we want to view our data with. I chose "Esri.WorldTopoMap" for this example.
+
+The function tm_shape() is used for plotting spatial data, and tm_polygons() specifies we want to plot a polygon shape file, which we just pulled using the Census API. The arguments within tm_polygons() are as follows:
+
+-   Col = the color to base the cloropath off of
+
+-   style = how do you want the data broken down? Options include quantile, category ("cat"), "fixed", or "equal"; more details are available in the tmap vignette
+
+-   n = the number of classes the col is broken into if col is numeric
+
+-   palette = the color scheme you would like to use
+
+-   title = the title of the legend
+
+-   alpha = transparency of the plot
+
+-   id = the name that will appear when the mouse hovers over the shape
+
+The code below combines 6 different layers into 1 map and creates an output variable *tmap_obj*
+
+```{r}
+tmap_options(basemaps = c("Esri.WorldTopoMap")) #<<
+
+tmap_obj <- tm_shape(Polk.Black.or.African.American) +
+  tm_polygons(col = "percent",
+          style = "quantile",
+          n = 7,
+          palette = "Purples",
+          title = "Percent Black or <br/>African American<br/>by Census tract",
+          alpha = 0.6,
+          id = "NAME") +
+  
+  tm_shape(Polk.Hispanic.or.Latino) +
+  tm_polygons(col = "percent",
+          style = "quantile",
+          n = 7,
+          palette = "Purples",
+          title = "Percent Hispanic<br/>by Census tract",
+          alpha = 0.6,
+          id = "NAME") +
+  
+  tm_shape(Polk.White) +
+  tm_polygons(col = "percent",
+          style = "quantile",
+          n = 7,
+          palette = "Purples",
+          title = "Percent White<br/>by Census tract",
+          alpha = 0.6,
+          id = "NAME") +
+  
+  tm_shape(Polk.Native.American.or.Alaska.Native) +
+  tm_polygons(col = "percent",
+          style = "quantile",
+          n = 7,
+          palette = "Purples",
+          title = "Percent Native American<br/>or Alaska Native<br/>by Census tract",
+          alpha = 0.6,
+          id = "NAME") +
+  
+  tm_shape(Polk.Asian) +
+  tm_polygons(col = "percent",
+          style = "quantile",
+          n = 7,
+          palette = "Purples",
+          title = "Percent Asian<br/>by Census tract",
+          alpha = 0.6,
+          id = "NAME") +
+  
+  tm_shape(Polk.Two.or.More.Races) +
+  tm_polygons(col = "percent",
+          style = "quantile",
+          n = 7,
+          palette = "Purples",
+          title = "Percent Two or more races<br/>by Census tract",
+          alpha = 0.6,
+          id = "NAME")
+
+tmap_obj
+```
+
+Unless you want every layer displayed on the output, you will need to convert the tmap object into a leaflet object. This is done using the leaflet package and calling the function tmap_leaflet(). You are then able to hide groups you don't want displayed until the user decides to display them. I hid every group so it begins as a blank map.
+
+```{r}
+tmap_obj <- tmap_obj %>% 
+  tmap_leaflet() %>%
+  leaflet::hideGroup(c("Polk.Black.or.African.American", 
+                       "Polk.Hispanic.or.Latino",
+                       "Polk.Native.American.or.Alaska.Native", 
+                       "Polk.Asian", "Polk.Two.or.More.Races", 
+                       "Polk.White"))
+
+tmap_obj
+```
